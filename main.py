@@ -18,9 +18,9 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# IDs (Colocados como texto para evitar erro de processamento de números grandes)
-ID_CANAL = "1467715175372165232" 
-ID_CARGO = "0000000000000000000" # TROQUE PELO ID DO CARGO
+# CONFIGURAÇÃO FÁCIL
+NOME_DO_CANAL = "compras🛒"  # <-- ESCREVA O NOME EXATO DO CANAL AQUI
+ID_CARGO_CLIENTE = 000000000000000000  # Troque pelo ID do cargo
 
 class PainelVendas(discord.ui.View):
     def __init__(self):
@@ -28,13 +28,13 @@ class PainelVendas(discord.ui.View):
         self.cliente = None
         self.produto = None
 
-    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Selecionar Cliente")
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="[Selecionar Cliente]")
     async def select_user(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         self.cliente = select.values[0]
         await interaction.response.send_message(f"Selecionado: {self.cliente.mention}", ephemeral=True)
 
     @discord.ui.select(
-        placeholder="Selecionar Produto",
+        placeholder="[Selecionar Xit]",
         options=[
             discord.SelectOption(label="Holograma", value="Holograma"),
             discord.SelectOption(label="headtrick-fruit-ninja", value="headtrick-fruit-ninja"),
@@ -48,42 +48,44 @@ class PainelVendas(discord.ui.View):
 
     @discord.ui.button(label="Confirmar Compra", style=discord.ButtonStyle.green)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # RESPOSTA IMEDIATA PARA EVITAR "INTERAÇÃO FALHOU"
+        # Resposta imediata para o Discord não dar erro de "Interação Falhou"
         await interaction.response.defer(ephemeral=True)
 
         if not self.cliente or not self.produto:
             return await interaction.followup.send("Selecione o cliente e o produto!", ephemeral=True)
 
-        try:
-            # Busca o canal de forma forçada usando o ID que você mandou
-            canal = await bot.fetch_channel(int(ID_CANAL))
-            
-            # Tenta dar o cargo
-            msg_cargo = ""
+        # BUSCA O CANAL PELO NOME
+        canal = discord.utils.get(interaction.guild.channels, name=NOME_DO_CANAL)
+        
+        if canal is None:
+            return await interaction.followup.send(f"❌ Erro: Não achei um canal chamado `{NOME_DO_CANAL}`", ephemeral=True)
+
+        # TENTA DAR O CARGO
+        msg_cargo = ""
+        role = interaction.guild.get_role(ID_CARGO_CLIENTE)
+        if role:
             try:
-                cargo_obj = interaction.guild.get_role(int(ID_CARGO))
-                if cargo_obj:
-                    await self.cliente.add_roles(cargo_obj)
-                    msg_cargo = "\n✅ Cargo entregue!"
+                await self.cliente.add_roles(role)
+                msg_cargo = "\n✅ Cargo de cliente entregue!"
             except:
-                msg_cargo = "\n❌ Erro ao dar cargo (verifique a hierarquia)."
+                msg_cargo = "\n⚠️ Sem permissão para dar cargo (arraste o cargo do bot para o topo)."
 
-            embed = discord.Embed(title="🛒 NOVA VENDA", color=0x00FF00)
-            embed.add_field(name="Comprador", value=self.cliente.mention)
-            embed.add_field(name="Produto", value=self.produto)
-            embed.description = msg_cargo
-
+        # ENVIA A MENSAGEM
+        embed = discord.Embed(title="🛒 NOVA VENDA", color=0x2ecc71)
+        embed.add_field(name="👤 Cliente", value=self.cliente.mention)
+        embed.add_field(name="📦 Produto", value=f"`{self.produto}`")
+        embed.description = msg_cargo
+        
+        try:
             await canal.send(embed=embed)
-            await interaction.followup.send("✅ Finalizado com sucesso!", ephemeral=True)
-
-        except Exception as e:
-            print(f"ERRO NO CONSOLE: {e}")
-            await interaction.followup.send(f"Erro técnico: {e}", ephemeral=True)
+            await interaction.followup.send("✅ Compra registrada!", ephemeral=True)
+        except:
+            await interaction.followup.send("❌ O bot não tem permissão para escrever nesse canal!", ephemeral=True)
 
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    print(f"Bot logado como {bot.user}")
+    print(f"Bot Online como {bot.user}")
 
 @bot.tree.command(name="compra", description="Abrir painel")
 async def compra(interaction: discord.Interaction):
