@@ -4,92 +4,70 @@ import os
 from flask import Flask
 from threading import Thread
 
-# --- VIVO ---
+# --- WEB SERVER ---
 app = Flask('')
 @app.route('/')
 def home(): return "Online"
 def run(): app.run(host='0.0.0.0', port=8080)
 def keep_alive(): Thread(target=run).start()
 
-# --- BOT ---
+# --- BOT CONFIG ---
 intents = discord.Intents.default()
-intents.members = True
+intents.members = True  # ESSENCIAL ESTAR LIGADO NO SITE
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# CONFIGURAÇÃO FÁCIL
-NOME_DO_CANAL = "compras🛒"  # <-- ESCREVA O NOME EXATO DO CANAL AQUI
-ID_CARGO_CLIENTE = 000000000000000000  # Troque pelo ID do cargo
+# COLOQUE O NOME EXATO DO CANAL AQUI
+CANAL_NOME = "compras🛒" 
 
-class PainelVendas(discord.ui.View):
+class Painel(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        self.cliente = None
-        self.produto = None
+        self.user = None
+        self.item = None
 
-    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="[Selecionar Cliente]")
-    async def select_user(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
-        self.cliente = select.values[0]
-        await interaction.response.send_message(f"Selecionado: {self.cliente.mention}", ephemeral=True)
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Selecione o Cliente")
+    async def s1(self, it: discord.Interaction, sel: discord.ui.UserSelect):
+        self.user = sel.values[0]
+        await it.response.send_message(f"Selecionado: {self.user.name}", ephemeral=True)
 
-    @discord.ui.select(
-        placeholder="[Selecionar Xit]",
-        options=[
-            discord.SelectOption(label="Holograma", value="Holograma"),
-            discord.SelectOption(label="headtrick-fruit-ninja", value="headtrick-fruit-ninja"),
-            discord.SelectOption(label="pack-de-sensi", value="pack-de-sensi"),
-            discord.SelectOption(label="mod-menu-freefire-max", value="mod-menu-freefire-max"),
-        ]
-    )
-    async def select_product(self, interaction: discord.Interaction, select: discord.ui.Select):
-        self.produto = select.values[0]
-        await interaction.response.send_message(f"Produto: {self.produto}", ephemeral=True)
+    @discord.ui.select(placeholder="Selecione o Produto", options=[
+        discord.SelectOption(label="Holograma", value="Holograma"),
+        discord.SelectOption(label="headtrick-fruit-ninja", value="headtrick-fruit-ninja"),
+        discord.SelectOption(label="pack-de-sensi", value="pack-de-sensi"),
+        discord.SelectOption(label="mod-menu-freefire-max", value="mod-menu-freefire-max")
+    ])
+    async def s2(self, it: discord.Interaction, sel: discord.ui.Select):
+        self.item = sel.values[0]
+        await it.response.send_message(f"Produto: {self.item}", ephemeral=True)
 
-    @discord.ui.button(label="Confirmar Compra", style=discord.ButtonStyle.green)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Resposta imediata para o Discord não dar erro de "Interação Falhou"
-        await interaction.response.defer(ephemeral=True)
+    @discord.ui.button(label="CONFIRMAR", style=discord.ButtonStyle.green)
+    async def confirm(self, it: discord.Interaction, btn: discord.ui.Button):
+        # RESPOSTA INSTANTÂNEA PARA NÃO DAR "INTERAÇÃO FALHOU"
+        await it.response.send_message("Processando...", ephemeral=True)
 
-        if not self.cliente or not self.produto:
-            return await interaction.followup.send("Selecione o cliente e o produto!", ephemeral=True)
+        if not self.user or not self.item:
+            return await it.edit_original_response(content="Erro: Selecione tudo!")
 
-        # BUSCA O CANAL PELO NOME
-        canal = discord.utils.get(interaction.guild.channels, name=NOME_DO_CANAL)
+        # Procura o canal
+        canal = discord.utils.get(it.guild.channels, name=CANAL_NOME)
         
-        if canal is None:
-            return await interaction.followup.send(f"❌ Erro: Não achei um canal chamado `{NOME_DO_CANAL}`", ephemeral=True)
-
-        # TENTA DAR O CARGO
-        msg_cargo = ""
-        role = interaction.guild.get_role(ID_CARGO_CLIENTE)
-        if role:
-            try:
-                await self.cliente.add_roles(role)
-                msg_cargo = "\n✅ Cargo de cliente entregue!"
-            except:
-                msg_cargo = "\n⚠️ Sem permissão para dar cargo (arraste o cargo do bot para o topo)."
-
-        # ENVIA A MENSAGEM
-        embed = discord.Embed(title="🛒 NOVA VENDA", color=0x2ecc71)
-        embed.add_field(name="👤 Cliente", value=self.cliente.mention)
-        embed.add_field(name="📦 Produto", value=f"`{self.produto}`")
-        embed.description = msg_cargo
-        
-        try:
+        if canal:
+            embed = discord.Embed(title="🛒 VENDA", description=f"Cliente: {self.user.mention}\nProduto: {self.item}", color=0x00FF00)
             await canal.send(embed=embed)
-            await interaction.followup.send("✅ Compra registrada!", ephemeral=True)
-        except:
-            await interaction.followup.send("❌ O bot não tem permissão para escrever nesse canal!", ephemeral=True)
+            await it.edit_original_response(content="✅ Enviado com sucesso!")
+        else:
+            await it.edit_original_response(content=f"❌ Canal '{CANAL_NOME}' não encontrado!")
 
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    print(f"Bot Online como {bot.user}")
+    print(f"BOT ONLINE: {bot.user}")
 
-@bot.tree.command(name="compra", description="Abrir painel")
-async def compra(interaction: discord.Interaction):
-    await interaction.response.send_message(view=PainelVendas(), ephemeral=True)
+@bot.tree.command(name="compra", description="Painel")
+async def compra(it: discord.Interaction):
+    await it.response.send_message(view=Painel(), ephemeral=True)
 
 keep_alive()
 bot.run(os.environ.get('TOKEN'))
