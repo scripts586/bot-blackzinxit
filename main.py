@@ -17,28 +17,56 @@ intents.members = True
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- CONFIGURAÇÕES GERAIS (IDs) ---
-ID_CARGO_CLIENTE = 123456789012345678  # Substitua pelo ID do cargo que o cliente deve ganhar
-ID_CANAL_ESTOQUE = 1467743387754168461 # Seu canal de estoque
+# --- CONFIGURAÇÕES DE IDs ---
+ID_CARGO_CLIENTE = 123456789012345678  # Mude para o ID do cargo de cliente
+ID_CANAL_ESTOQUE = 1467743387754168461
+ID_CANAL_TICKET_POST = 1467746343664750673
 
-# --- VIEW DO SISTEMA DE ESTOQUE ---
+# --- 1. CLASSE DO TICKET (PERSISTENTE) ---
+class BotaoTicket(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None) # Importante para o botão não parar de funcionar
+
+    @discord.ui.button(label="Compre aqui!", style=discord.ButtonStyle.blurple, custom_id="ticket_vendas", emoji="🛒")
+    async def create_ticket(self, it: discord.Interaction, btn: discord.ui.Button):
+        nome_canal = f"🛒-{it.user.name}"
+        
+        # Verifica se já existe
+        existente = discord.utils.get(it.guild.channels, name=nome_canal.lower())
+        if existente:
+            return await it.response.send_message(f"❌ Já tens um ticket em {existente.mention}", ephemeral=True)
+
+        # Permissões: Admin e o Dono do Ticket vêem, @everyone não vê.
+        overwrites = {
+            it.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            it.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True),
+            it.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
+        }
+
+        ticket_char = await it.guild.create_text_channel(nome_canal, overwrites=overwrites)
+        
+        embed = discord.Embed(
+            title="🎫 Atendimento Iniciado",
+            description=f"Olá {it.user.mention}, bem-vindo ao teu ticket!\n\nUtiliza o comando `/compra` para registar o teu pedido aqui dentro.",
+            color=0x5865F2
+        )
+        await ticket_char.send(embed=embed)
+        await it.response.send_message(f"✅ Ticket criado em {ticket_char.mention}", ephemeral=True)
+
+# --- 2. CLASSE DO MENU DE ESTOQUE ---
 class MenuEstoque(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.select(
-        placeholder="📦 Qual estoque você quer adicionar?", 
+        placeholder="📦 Qual estoque queres adicionar?", 
         options=[
             discord.SelectOption(label="Obb holograma + hs", value="Obb holograma + hs", emoji="⚡"),
-            # Adicione mais opções aqui se precisar
         ]
     )
     async def select_callback(self, it: discord.Interaction, select: discord.ui.Select):
         nome_produto = select.values[0]
         canal = it.guild.get_channel(ID_CANAL_ESTOQUE)
-
-        if not canal:
-            return await it.response.send_message("❌ Canal de estoque não encontrado!", ephemeral=True)
 
         embed = discord.Embed(
             title="NOVO ESTOQUE⚡!",
@@ -49,28 +77,27 @@ class MenuEstoque(discord.ui.View):
         await canal.send(content="@everyone", embed=embed)
         await it.response.send_message(f"✅ Estoque de `{nome_produto}` postado!", ephemeral=True)
 
-# --- VIEW DO PAINEL DE VENDAS ---
+# --- 3. CLASSE DO PAINEL DE VENDAS ---
 class PainelVendas(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
         self.cliente = None
         self.produto = None
-        self.canal_destino = None
+        self.canal_log = None
 
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="👤 Selecione o Cliente")
     async def select_user(self, it: discord.Interaction, sel: discord.ui.UserSelect):
         self.cliente = sel.values[0]
-        await it.response.send_message(f"✅ Cliente selecionado: {self.cliente.mention}", ephemeral=True)
+        await it.response.send_message(f"✅ Cliente: {self.cliente.mention}", ephemeral=True)
 
-    @discord.ui.select(cls=discord.ui.ChannelSelect, channel_types=[discord.ChannelType.text], placeholder="📺 Canal de Logs/Compras")
+    @discord.ui.select(cls=discord.ui.ChannelSelect, channel_types=[discord.ChannelType.text], placeholder="📺 Canal de Logs")
     async def select_channel(self, it: discord.Interaction, sel: discord.ui.ChannelSelect):
-        self.canal_destino = sel.values[0]
-        await it.response.send_message(f"✅ Canal definido: {self.canal_destino.mention}", ephemeral=True)
+        self.canal_log = sel.values[0]
+        await it.response.send_message(f"✅ Canal definido: {self.canal_log.mention}", ephemeral=True)
 
     @discord.ui.select(placeholder="👾 Selecione o Produto", options=[
         discord.SelectOption(label="Holograma", value="Holograma"),
-        discord.SelectOption(label="headtrick-fruit-ninja", value="headtrick-fruit-ninja"),
-        discord.SelectOption(label="pack-de-sensi", value="pack-de-sensi"),
+        discord.SelectOption(label="Obb holograma + hs", value="Obb holograma + hs"),
         discord.SelectOption(label="mod-menu-freefire-max", value="mod-menu-freefire-max")
     ])
     async def select_product(self, it: discord.Interaction, sel: discord.ui.Select):
@@ -81,35 +108,36 @@ class PainelVendas(discord.ui.View):
     async def confirm(self, it: discord.Interaction, btn: discord.ui.Button):
         await it.response.defer(ephemeral=True) 
 
-        if not all([self.cliente, self.produto, self.canal_destino]):
-            return await it.followup.send("❌ Erro: Selecione todos os campos!", ephemeral=True)
+        if not all([self.cliente, self.produto, self.canal_log]):
+            return await it.followup.send("❌ Erro: Falta selecionar dados!", ephemeral=True)
 
         try:
-            # 1. Tenta dar o cargo ao cliente
+            # Entrega de Cargo
             cargo = it.guild.get_role(ID_CARGO_CLIENTE)
             status_cargo = ""
             if cargo:
                 await self.cliente.add_roles(cargo)
-                status_cargo = "\n✅ Cargo de Cliente entregue!"
+                status_cargo = "\n✅ Cargo entregue!"
 
-            # 2. Envia a log da venda
-            canal_real = it.guild.get_channel(self.canal_destino.id)
+            # Envio da Embed de Log
             embed = discord.Embed(title="🛒 COMPRA REALIZADA", color=0x2ecc71)
             embed.set_thumbnail(url=self.cliente.display_avatar.url)
             embed.add_field(name="👤 Cliente", value=self.cliente.mention, inline=False)
             embed.add_field(name="📦 Produto", value=f"`{self.produto}`", inline=False)
             embed.set_footer(text=f"Registro Automático{status_cargo}")
             
-            await canal_real.send(content=f"🔔 {self.cliente.mention} nova compra!", embed=embed)
-            await it.followup.send(f"✅ Sucesso! Venda registrada e cargo entregue.", ephemeral=True)
+            await self.canal_log.send(content=f"🔔 {self.cliente.mention} nova compra!", embed=embed)
+            await it.followup.send(f"✅ Venda registada com sucesso!", ephemeral=True)
 
         except Exception as e:
-            await it.followup.send(f"❌ Erro ao processar: {e}", ephemeral=True)
+            await it.followup.send(f"❌ Erro: {e}", ephemeral=True)
 
-# --- COMANDOS SLASH ---
+# --- EVENTOS E COMANDOS SLASH ---
 
 @bot.event
 async def on_ready():
+    # Isso mantém o botão do ticket ativo mesmo reiniciando o bot
+    bot.add_view(BotaoTicket())
     await bot.tree.sync()
     print(f"✅ BOT ONLINE: {bot.user}")
 
@@ -117,11 +145,23 @@ async def on_ready():
 async def compra(it: discord.Interaction):
     await it.response.send_message(view=PainelVendas(), ephemeral=True)
 
-@bot.tree.command(name="estoque", description="Adicionar novo estoque ao canal")
+@bot.tree.command(name="estoque", description="Postar aviso de estoque")
 async def estoque(it: discord.Interaction):
     if not it.user.guild_permissions.administrator:
-        return await it.response.send_message("❌ Apenas administradores!", ephemeral=True)
-    await it.response.send_message("Escolha o produto para anunciar o estoque:", view=MenuEstoque(), ephemeral=True)
+        return await it.response.send_message("❌ Apenas Admins!", ephemeral=True)
+    await it.response.send_message("Selecione o produto:", view=MenuEstoque(), ephemeral=True)
+
+@bot.tree.command(name="set_ticket", description="Enviar a mensagem de ticket personalizada")
+async def set_ticket(it: discord.Interaction):
+    if not it.user.guild_permissions.administrator:
+        return await it.response.send_message("❌ Apenas Admins!", ephemeral=True)
+
+    canal = it.guild.get_channel(ID_CANAL_TICKET_POST)
+    embed = discord.Embed(title="Faça sua compra aqui!", color=0x5865F2)
+    embed.set_image(url="https://cdn.discordapp.com/attachments/1194067497519955988/1379104467915374642/banner_tickets.png?ex=69815d5f&is=69800bdf&hm=a6cbc176f99b349f3bca4623823b50bf598a8a8fc529cdea20afebb1863e68e6&")
+    
+    await canal.send(embed=embed, view=BotaoTicket())
+    await it.response.send_message("✅ Painel de Ticket enviado!", ephemeral=True)
 
 if __name__ == "__main__":
     keep_alive()
