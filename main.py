@@ -1,19 +1,11 @@
-import os
-
-# Força a instalação das bibliotecas caso elas sumam
-try:
-    import discord
-    from flask import Flask
-except ImportError:
-    os.system("pip install discord.py flask")
-    import discord
-    from flask import Flask
-
+import discord
 from discord.ext import commands
 from discord import app_commands
+import os
+from flask import Flask
 from threading import Thread
 
-# --- MANTÉM O BOT VIVO ---
+# --- MANTÉM O BOT VIVO (RENDER/REPLIT) ---
 app = Flask('')
 @app.route('/')
 def home(): return "Bot Online!"
@@ -30,9 +22,9 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# IDs IMPORTANTES (Substitua pelos números do seu Discord)
-ID_CANAL_COMPRAS = 000000000000000000  
-ID_CARGO_CLIENTE = 000000000000000000  
+# IDs CONFIGURADOS
+ID_CANAL_COMPRAS = 1467715175372165232  # Seu ID atualizado
+ID_CARGO_CLIENTE = 000000000000000000  # <--- COLOQUE O ID DO CARGO AQUI
 
 class PainelVendas(discord.ui.View):
     def __init__(self):
@@ -46,7 +38,7 @@ class PainelVendas(discord.ui.View):
         await interaction.response.send_message(f"Selecionado: {self.cliente.mention}", ephemeral=True)
 
     @discord.ui.select(
-        placeholder="[Opções👾]",
+        placeholder="[Xit👾]",
         options=[
             discord.SelectOption(label="Holograma", value="Holograma"),
             discord.SelectOption(label="headtrick-fruit-ninja", value="headtrick-fruit-ninja"),
@@ -61,48 +53,50 @@ class PainelVendas(discord.ui.View):
     @discord.ui.button(label="Confirmar", style=discord.ButtonStyle.green)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.cliente:
-            return await interaction.response.send_message("selecione o cliente primeiro!", ephemeral=True)
+            return await interaction.response.send_message("Selecione o cliente primeiro!", ephemeral=True)
         if not self.produto:
-            return await interaction.response.send_message("selecione a opção primeiro!", ephemeral=True)
+            return await interaction.response.send_message("Selecione a opção xit primeiro!", ephemeral=True)
 
-        canal = bot.get_channel(ID_CANAL_COMPRAS)
         msg_cargo = ""
-
+        
+        # Tenta dar o cargo
         if isinstance(self.cliente, discord.Member):
             role = interaction.guild.get_role(ID_CARGO_CLIENTE)
             if role:
-                if role not in self.cliente.roles:
-                    await self.cliente.add_roles(role)
-                    msg_cargo = "\nCargo cliente adicionado!"
+                try:
+                    if role not in self.cliente.roles:
+                        await self.cliente.add_roles(role)
+                        msg_cargo = "\nCargo cliente adicionado!"
+                except:
+                    msg_cargo = "\n(Erro: Sem permissão para dar cargo)"
             else:
-                msg_cargo = "\n(Erro: ID do cargo de cliente não encontrado)"
+                msg_cargo = "\n(Erro: ID do cargo não encontrado)"
 
-        if canal:
+        # Tenta enviar a mensagem no canal (Usando fetch para não falhar)
+        try:
+            canal = await bot.fetch_channel(ID_CANAL_COMPRAS)
             embed = discord.Embed(title="🛒 COMPRA EFETUADA!", color=0x00FF00)
             embed.description = (
                 f"{self.cliente.mention} COMPRA EFETUADA!\n\n"
-                f"{self.cliente.mention} Comprou o item: **{self.produto}**\n"
+                f"{self.cliente.mention} Comprou o painel **{self.produto}**\n"
                 f"Obrigado pela compra! {msg_cargo}"
             )
             await canal.send(content=self.cliente.mention, embed=embed)
-            await interaction.response.send_message("✅ Feito!", ephemeral=True)
-        else:
-            await interaction.response.send_message("Erro: Canal de compras não configurado!", ephemeral=True)
+            await interaction.response.send_message("✅ Registro enviado com sucesso!", ephemeral=True)
+        except Exception as e:
+            print(f"Erro ao achar canal: {e}")
+            await interaction.response.send_message(f"Erro ao enviar no canal: {e}", ephemeral=True)
 
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    print(f"Bot ligado como {bot.user}")
+    print(f"Logado como {bot.user}")
 
 @bot.tree.command(name="compra", description="Abrir painel de vendas")
 async def compra(interaction: discord.Interaction):
     await interaction.response.send_message(view=PainelVendas(), ephemeral=True)
 
-# Inicialização
 if __name__ == "__main__":
     keep_alive()
     token = os.environ.get('TOKEN')
-    if token:
-        bot.run(token)
-    else:
-        print("ERRO: Você não configurou o TOKEN no Secrets (Cadeado)!")
+    bot.run(token)
