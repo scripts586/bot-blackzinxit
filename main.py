@@ -191,3 +191,11 @@ if __name__ == "__main__":
         bot.run(token)
     else:
         print("❌ TOKEN não encontrado!")
+
+# --- CONFIGURAÇÃO DAS INTENTS ---
+intents = discord.Intents.default()
+intents.members = True 
+intents.message_content = True
+intents.presences = True  # Adicione esta linha
+bot = commands.Bot(command_prefix="!", intents=intents)
+
